@@ -1,0 +1,8 @@
+{
+  "name": "learn-from-your-ask",
+  "version": "0.1.0",
+  "description": "Capture valuable technical Q&A from AI conversations into a persistent learning knowledge graph.",
+  "author": {
+    "name": "learn-from-your-ask contributors"
+  }
+}

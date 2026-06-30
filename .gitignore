@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Claude Code local workspace state
+.claude/
+
+# Generated knowledge graph output
+knowledge/*
+!knowledge/.gitkeep

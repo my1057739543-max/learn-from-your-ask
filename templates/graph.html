@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learn From Your Ask — 知识图谱</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --card-bg: rgba(15, 15, 30, 0.85);
+    --cyan: #00d4ff;
+    --purple: #a855f7;
+    --green: #00ff88;
+    --orange: #ff8c42;
+    --pink: #ff4d8c;
+    --text: #e0e0e8;
+    --text-dim: #8888a0;
+    --border: rgba(255, 255, 255, 0.08);
+    --glow-cyan: 0 0 20px rgba(0, 212, 255, 0.4);
+    --glow-purple: 0 0 20px rgba(168, 85, 247, 0.4);
+    --glow-green: 0 0 20px rgba(0, 255, 136, 0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    user-select: none;
+  }
+
+  /* ── Canvas particle background ── */
+  #particle-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ── Main container ── */
+  #app {
+    position: relative;
+    z-index: 1;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── Header ── */
+  #header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 20px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 10;
+    pointer-events: none;
+  }
+  #header > * { pointer-events: auto; }
+
+  #logo {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  #profession-badge {
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--cyan);
+    backdrop-filter: blur(10px);
+  }
+
+  /* ── Breadcrumb ── */
+  #breadcrumb {
+    position: absolute;
+    top: 80px;
+    left: 32px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+    transition: opacity 0.3s;
+  }
+  #breadcrumb span {
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+  #breadcrumb span:hover { color: var(--cyan); }
+  #breadcrumb span.current { color: var(--text); font-weight: 600; }
+  #breadcrumb .sep { color: var(--text-dim); cursor: default; }
+
+  /* ── Stage container ── */
+  #stage {
+    flex: 1;
+    width: 100%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── SVG layer ── */
+  #graph-svg {
+    position: absolute;
+    width: 100%; height: 100%;
+    overflow: visible;
+  }
+
+  /* ── Node styles ── */
+  .graph-node {
+    cursor: pointer;
+    transition: filter 0.3s;
+  }
+  .graph-node:hover { filter: brightness(1.3); }
+
+  .node-circle {
+    transition: r 0.3s, stroke-width 0.3s;
+  }
+
+  .node-label {
+    fill: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    text-anchor: middle;
+    pointer-events: none;
+    transition: fill 0.3s;
+  }
+  .node-count {
+    fill: var(--text-dim);
+    font-size: 11px;
+    text-anchor: middle;
+    pointer-events: none;
+    transition: fill 0.3s;
+  }
+  .node-icon {
+    font-size: 24px;
+    text-anchor: middle;
+    pointer-events: none;
+    dominant-baseline: central;
+  }
+
+  /* ── Knowledge cards ── */
+  #cards-layer {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    padding: 120px 40px 40px;
+    overflow-y: auto;
+    justify-content: center;
+    align-content: flex-start;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  #cards-layer.active {
+    display: flex;
+  }
+
+  .knowledge-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    width: 320px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    position: relative;
+    overflow: hidden;
+  }
+  .knowledge-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 3px;
+    background: linear-gradient(90deg, var(--cyan), var(--purple));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .knowledge-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--cyan);
+    box-shadow: var(--glow-cyan);
+  }
+  .knowledge-card:hover::before { opacity: 1; }
+
+  .card-date {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    font-family: 'Consolas', 'Fira Code', monospace;
+  }
+  .card-topic {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .card-question {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .card-tag {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    background: rgba(0, 212, 255, 0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    font-family: 'Consolas', 'Fira Code', monospace;
+  }
+
+  /* ── Modal ── */
+  #modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  #modal-overlay.active {
+    display: flex;
+  }
+
+  #modal {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    width: min(700px, 90vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 0 60px rgba(0, 212, 255, 0.15);
+    animation: modalIn 0.3s ease-out;
+  }
+  @keyframes modalIn {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  #modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #modal-header h2 {
+    font-size: 20px;
+    font-weight: 700;
+  }
+  #modal-close {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+  #modal-close:hover { color: var(--text); border-color: var(--text-dim); }
+
+  #modal-meta {
+    padding: 12px 24px;
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    font-family: 'Consolas', 'Fira Code', monospace;
+  }
+
+  #modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .conversation-msg {
+    margin-bottom: 16px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .conversation-msg.user {
+    background: rgba(168, 85, 247, 0.1);
+    border: 1px solid rgba(168, 85, 247, 0.2);
+    border-left: 3px solid var(--purple);
+  }
+  .conversation-msg.assistant {
+    background: rgba(0, 212, 255, 0.05);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    border-left: 3px solid var(--cyan);
+  }
+  .conversation-msg .role-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+  .conversation-msg.user .role-label { color: var(--purple); }
+  .conversation-msg.assistant .role-label { color: var(--cyan); }
+  .conversation-msg pre {
+    background: rgba(0,0,0,0.4);
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 12px;
+    margin: 8px 0;
+    border: 1px solid var(--border);
+  }
+  .conversation-msg code {
+    font-family: 'Consolas', 'Fira Code', 'Courier New', monospace;
+    font-size: 12px;
+  }
+
+  /* ── Empty state ── */
+  #empty-state {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+  #empty-state.active { display: flex; }
+  #empty-state .empty-icon { font-size: 64px; opacity: 0.5; }
+  #empty-state .empty-title { font-size: 20px; font-weight: 600; color: var(--text); }
+  #empty-state .empty-hint { font-size: 14px; max-width: 400px; line-height: 1.6; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .knowledge-card { width: 100%; }
+    #cards-layer { padding: 100px 16px 16px; }
+    #modal { width: 95vw; max-height: 90vh; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="particle-canvas"></canvas>
+
+<div id="app">
+  <div id="header">
+    <div id="logo">LEARN FROM YOUR ASK</div>
+    <div id="profession-badge"></div>
+  </div>
+
+  <div id="breadcrumb"></div>
+
+  <div id="stage">
+    <svg id="graph-svg"></svg>
+    <div id="cards-layer"></div>
+    <div id="empty-state">
+      <div class="empty-icon">🚀</div>
+      <div class="empty-title">知识图谱已就绪</div>
+      <div class="empty-hint">运行 <code>/learn-from-your-ask</code> 来保存你的第一个知识点，开始构建你的知识体系吧！</div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-overlay">
+  <div id="modal">
+    <div id="modal-header">
+      <h2 id="modal-title"></h2>
+      <button id="modal-close">&times;</button>
+    </div>
+    <div id="modal-meta"></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// KNOWLEDGE DATA — injected at build time
+// ═══════════════════════════════════════════════════════════
+const KNOWLEDGE = {{KNOWLEDGE_DATA}};
+
+// ═══════════════════════════════════════════════════════════
+// COLOR PALETTE for domains
+// ═══════════════════════════════════════════════════════════
+const DOMAIN_COLORS = [
+  { fill: 'rgba(0, 212, 255, 0.15)',  stroke: '#00d4ff', glow: 'rgba(0, 212, 255, 0.5)' },
+  { fill: 'rgba(168, 85, 247, 0.15)', stroke: '#a855f7', glow: 'rgba(168, 85, 247, 0.5)' },
+  { fill: 'rgba(0, 255, 136, 0.12)',  stroke: '#00ff88', glow: 'rgba(0, 255, 136, 0.4)' },
+  { fill: 'rgba(255, 140, 66, 0.12)',  stroke: '#ff8c42', glow: 'rgba(255, 140, 66, 0.4)' },
+  { fill: 'rgba(255, 77, 140, 0.12)',  stroke: '#ff4d8c', glow: 'rgba(255, 77, 140, 0.4)' },
+  { fill: 'rgba(250, 204, 21, 0.12)',  stroke: '#facc15', glow: 'rgba(250, 204, 21, 0.4)' },
+  { fill: 'rgba(94, 234, 212, 0.12)',  stroke: '#5eead4', glow: 'rgba(94, 234, 212, 0.4)' },
+  { fill: 'rgba(196, 181, 253, 0.12)', stroke: '#c4b5fd', glow: 'rgba(196, 181, 253, 0.4)' },
+];
+
+// ═══════════════════════════════════════════════════════════
+// PARTICLE SYSTEM
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('particle-canvas');
+const ctx = canvas.getContext('2d');
+let particles = [];
+let animFrame;
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+class Particle {
+  constructor() {
+    this.reset();
+    this.y = Math.random() * canvas.height; // spread initially
+  }
+  reset() {
+    this.x = Math.random() * canvas.width;
+    this.y = -10;
+    this.size = Math.random() * 2 + 0.5;
+    this.speed = Math.random() * 0.5 + 0.15;
+    this.opacity = Math.random() * 0.5 + 0.2;
+    this.drift = Math.random() * 0.3 - 0.15;
+  }
+  update() {
+    this.y += this.speed;
+    this.x += this.drift;
+    if (this.y > canvas.height + 10) { this.reset(); this.y = -10; }
+    if (this.x < -10) this.x = canvas.width + 10;
+    if (this.x > canvas.width + 10) this.x = -10;
+  }
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0, 212, 255, ${this.opacity})`;
+    ctx.fill();
+  }
+}
+
+// Initialize particles
+const PARTICLE_COUNT = 80;
+for (let i = 0; i < PARTICLE_COUNT; i++) {
+  const p = new Particle();
+  p.y = Math.random() * canvas.height;
+  particles.push(p);
+}
+
+function animateParticles() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  particles.forEach(p => { p.update(); p.draw(); });
+  animFrame = requestAnimationFrame(animateParticles);
+}
+animateParticles();
+
+// ═══════════════════════════════════════════════════════════
+// APP STATE
+// ═══════════════════════════════════════════════════════════
+const state = {
+  layer: 'domains', // 'domains' | 'subdomains' | 'knowledge'
+  currentDomain: null,
+  currentSubdomain: null,
+};
+
+// ═══════════════════════════════════════════════════════════
+// HELPER: count total knowledge points
+// ═══════════════════════════════════════════════════════════
+function countKP(subdomains) {
+  return Object.values(subdomains).reduce((sum, sd) => sum + (sd.knowledgePoints || []).length, 0);
+}
+
+function totalKP() {
+  if (!KNOWLEDGE.domains) return 0;
+  return Object.values(KNOWLEDGE.domains).reduce((sum, d) => sum + countKP(d.subdomains || {}), 0);
+}
+
+// ═══════════════════════════════════════════════════════════
+// SVG / D3 — Domain & Subdomain graph
+// ═══════════════════════════════════════════════════════════
+const svg = d3.select('#graph-svg');
+const svgWidth = () => window.innerWidth;
+const svgHeight = () => window.innerHeight;
+svg.attr('viewBox', `0 0 ${svgWidth()} ${svgHeight()}`);
+
+const g = svg.append('g');
+
+// Zoom behavior
+const zoom = d3.zoom()
+  .scaleExtent([0.5, 3])
+  .on('zoom', (event) => {
+    g.attr('transform', event.transform);
+  });
+svg.call(zoom);
+
+function renderDomainGraph() {
+  g.selectAll('*').remove();
+  if (!KNOWLEDGE.domains || Object.keys(KNOWLEDGE.domains).length === 0) return;
+
+  const domains = Object.entries(KNOWLEDGE.domains);
+  const cx = svgWidth() / 2;
+  const cy = svgHeight() / 2;
+
+  // Center node: profession
+  const centerG = g.append('g').attr('class', 'graph-node');
+  centerG.append('circle')
+    .attr('cx', cx).attr('cy', cy).attr('r', 50)
+    .attr('fill', 'rgba(168, 85, 247, 0.2)')
+    .attr('stroke', '#a855f7')
+    .attr('stroke-width', 2);
+  centerG.append('text')
+    .attr('x', cx).attr('y', cy - 6)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#e0e0e8')
+    .attr('font-size', 13)
+    .attr('font-weight', 600)
+    .text(KNOWLEDGE.profession || 'Learner');
+  centerG.append('text')
+    .attr('x', cx).attr('y', cy + 14)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#8888a0')
+    .attr('font-size', 11)
+    .text(`${totalKP()} 知识点`);
+
+  // Domain nodes in a circle around center
+  const radius = Math.min(cx, cy) * 0.5;
+  const angleStep = (2 * Math.PI) / domains.length;
+
+  domains.forEach(([domainName, domainData], i) => {
+    const angle = angleStep * i - Math.PI / 2;
+    const nx = cx + radius * Math.cos(angle);
+    const ny = cy + radius * Math.sin(angle);
+    const color = DOMAIN_COLORS[i % DOMAIN_COLORS.length];
+    const kpCount = countKP(domainData.subdomains || {});
+
+    // Connection line
+    g.append('line')
+      .attr('x1', cx).attr('y1', cy)
+      .attr('x2', nx).attr('y2', ny)
+      .attr('stroke', color.stroke)
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,4')
+      .attr('opacity', 0.3);
+
+    const nodeG = g.append('g')
+      .attr('class', 'graph-node')
+      .attr('transform', `translate(${nx}, ${ny})`)
+      .style('cursor', 'pointer')
+      .on('click', () => navigateToSubdomains(domainName));
+
+    // Glow ring
+    nodeG.append('circle')
+      .attr('r', 42)
+      .attr('fill', 'none')
+      .attr('stroke', color.glow)
+      .attr('stroke-width', 6)
+      .attr('opacity', 0.3);
+
+    nodeG.append('circle')
+      .attr('r', 38)
+      .attr('fill', color.fill)
+      .attr('stroke', color.stroke)
+      .attr('stroke-width', 2);
+
+    // Icon
+    nodeG.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', '-8')
+      .attr('font-size', 28)
+      .text(domainData.icon || '📦');
+
+    // Name
+    nodeG.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', '22')
+      .attr('fill', '#e0e0e8')
+      .attr('font-size', 14)
+      .attr('font-weight', 600)
+      .text(domainName);
+
+    // Count
+    nodeG.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', '40')
+      .attr('fill', '#8888a0')
+      .attr('font-size', 11)
+      .text(`${kpCount} 知识点`);
+  });
+}
+
+function renderSubdomainGraph(domainName) {
+  g.selectAll('*').remove();
+  const domainData = KNOWLEDGE.domains[domainName];
+  if (!domainData || !domainData.subdomains) return;
+
+  const subdomains = Object.entries(domainData.subdomains);
+  const cx = svgWidth() / 2;
+  const cy = svgHeight() / 2;
+  const color = DOMAIN_COLORS[Object.keys(KNOWLEDGE.domains).indexOf(domainName) % DOMAIN_COLORS.length];
+
+  // Center: domain name
+  const centerG = g.append('g');
+  centerG.append('circle')
+    .attr('cx', cx).attr('cy', cy).attr('r', 44)
+    .attr('fill', color.fill)
+    .attr('stroke', color.stroke)
+    .attr('stroke-width', 2);
+  centerG.append('text')
+    .attr('x', cx).attr('y', cy - 6)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#e0e0e8')
+    .attr('font-size', 13)
+    .attr('font-weight', 600)
+    .text(domainName);
+  centerG.append('text')
+    .attr('x', cx).attr('y', cy + 14)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#8888a0')
+    .attr('font-size', 11)
+    .text(`${countKP(domainData.subdomains)} 知识点`);
+
+  const radius = Math.min(cx, cy) * 0.45;
+  const angleStep = (2 * Math.PI) / Math.max(subdomains.length, 1);
+
+  subdomains.forEach(([subName, subData], i) => {
+    const angle = angleStep * i - Math.PI / 2;
+    const nx = cx + radius * Math.cos(angle);
+    const ny = cy + radius * Math.sin(angle);
+    const kpCount = (subData.knowledgePoints || []).length;
+
+    g.append('line')
+      .attr('x1', cx).attr('y1', cy)
+      .attr('x2', nx).attr('y2', ny)
+      .attr('stroke', color.stroke)
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,4')
+      .attr('opacity', 0.3);
+
+    const nodeG = g.append('g')
+      .attr('class', 'graph-node')
+      .attr('transform', `translate(${nx}, ${ny})`)
+      .style('cursor', 'pointer')
+      .on('click', () => navigateToKnowledge(domainName, subName));
+
+    nodeG.append('circle')
+      .attr('r', 34)
+      .attr('fill', color.fill)
+      .attr('stroke', color.stroke)
+      .attr('stroke-width', 1.5);
+
+    nodeG.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', '-4')
+      .attr('fill', '#e0e0e8')
+      .attr('font-size', 13)
+      .attr('font-weight', 600)
+      .text(subName);
+
+    nodeG.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', '16')
+      .attr('fill', '#8888a0')
+      .attr('font-size', 11)
+      .text(`${kpCount} 知识点`);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// KNOWLEDGE CARDS (Layer 3)
+// ═══════════════════════════════════════════════════════════
+function renderKnowledgeCards(domainName, subdomainName) {
+  const container = document.getElementById('cards-layer');
+  container.innerHTML = '';
+
+  const subData = KNOWLEDGE.domains[domainName].subdomains[subdomainName];
+  const kps = subData.knowledgePoints || [];
+
+  kps.forEach(kp => {
+    const card = document.createElement('div');
+    card.className = 'knowledge-card';
+    card.onclick = () => openModal(kp, domainName, subdomainName);
+    card.innerHTML = `
+      <div class="card-date">${kp.date || ''}</div>
+      <div class="card-topic">${kp.topic || 'Untitled'}</div>
+      <div class="card-question">${kp.question || ''}</div>
+      <div class="card-tags">
+        ${(kp.tags || []).map(t => `<span class="card-tag">${t}</span>`).join('')}
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════
+function openModal(kp, domainName, subdomainName) {
+  document.getElementById('modal-title').textContent = kp.topic || 'Knowledge Point';
+  document.getElementById('modal-meta').innerHTML = `
+    <span>📅 ${kp.date || ''}</span>
+    <span>📂 ${domainName} › ${subdomainName}</span>
+    ${(kp.tags || []).map(t => `<span class="card-tag">${t}</span>`).join('')}
+  `;
+
+  const body = document.getElementById('modal-body');
+  body.innerHTML = '';
+  (kp.conversation || []).forEach(msg => {
+    const div = document.createElement('div');
+    div.className = `conversation-msg ${msg.role}`;
+    const label = msg.role === 'user' ? '🧑 You' : '🤖 AI';
+    div.innerHTML = `<div class="role-label">${label}</div><div>${formatContent(msg.content)}</div>`;
+    body.appendChild(div);
+  });
+
+  if (!kp.conversation || kp.conversation.length === 0) {
+    body.innerHTML = `
+      <div class="conversation-msg user">
+        <div class="role-label">🧑 You</div><div>${kp.question || 'N/A'}</div>
+      </div>
+      <div class="conversation-msg assistant">
+        <div class="role-label">🤖 AI</div><div>${kp.answer || 'N/A'}</div>
+      </div>
+    `;
+  }
+
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+function formatContent(text) {
+  if (!text) return '';
+  // Escape HTML
+  let escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // Wrap code blocks
+  escaped = escaped.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Wrap inline code
+  escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Newlines
+  escaped = escaped.replace(/\n/g, '<br>');
+  return escaped;
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════
+function navigateToDomains() {
+  state.layer = 'domains';
+  state.currentDomain = null;
+  state.currentSubdomain = null;
+  document.getElementById('cards-layer').classList.remove('active');
+  document.getElementById('graph-svg').style.display = '';
+  updateBreadcrumb();
+  renderDomainGraph();
+}
+
+function navigateToSubdomains(domainName) {
+  state.layer = 'subdomains';
+  state.currentDomain = domainName;
+  state.currentSubdomain = null;
+  document.getElementById('cards-layer').classList.remove('active');
+  document.getElementById('graph-svg').style.display = '';
+  updateBreadcrumb();
+  renderSubdomainGraph(domainName);
+}
+
+function navigateToKnowledge(domainName, subdomainName) {
+  state.layer = 'knowledge';
+  state.currentDomain = domainName;
+  state.currentSubdomain = subdomainName;
+  document.getElementById('graph-svg').style.display = 'none';
+  document.getElementById('cards-layer').classList.add('active');
+  updateBreadcrumb();
+  renderKnowledgeCards(domainName, subdomainName);
+}
+
+function updateBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  let html = '<span onclick="navigateToDomains()">🏠 全部</span>';
+  if (state.currentDomain) {
+    html += '<span class="sep">›</span>';
+    if (state.layer === 'subdomains' || state.layer === 'knowledge') {
+      html += `<span class="current">${state.currentDomain}</span>`;
+    } else {
+      html += `<span onclick="navigateToSubdomains('${state.currentDomain}')">${state.currentDomain}</span>`;
+    }
+  }
+  if (state.currentSubdomain) {
+    html += '<span class="sep">›</span>';
+    html += `<span class="current">${state.currentSubdomain}</span>`;
+  }
+  bc.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+function init() {
+  document.getElementById('profession-badge').textContent =
+    KNOWLEDGE.profession ? `👤 ${KNOWLEDGE.profession}` : '';
+
+  const hasData = KNOWLEDGE.domains && Object.keys(KNOWLEDGE.domains).length > 0;
+  if (hasData) {
+    document.getElementById('graph-svg').style.display = '';
+    document.getElementById('empty-state').classList.remove('active');
+    document.getElementById('cards-layer').classList.remove('active');
+    renderDomainGraph();
+    updateBreadcrumb();
+  } else {
+    document.getElementById('graph-svg').style.display = 'none';
+    document.getElementById('empty-state').classList.add('active');
+    document.getElementById('cards-layer').classList.remove('active');
+    document.getElementById('breadcrumb').innerHTML = '';
+  }
+}
+
+// Handle resize
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  if (state.layer === 'domains') renderDomainGraph();
+  else if (state.layer === 'subdomains') renderSubdomainGraph(state.currentDomain);
+});
+
+init();
+</script>
+</body>
+</html>
